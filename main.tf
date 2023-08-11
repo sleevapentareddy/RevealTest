@@ -1,384 +1,59 @@
-provider "aws" {
-  region = local.region
-}
-
-locals {
-  name   = "example-ec2-complete"
-  region = "eu-west-1"
-
-  user_data = <<-EOT
-  #!/bin/bash
-  echo "Hello Terraform!"
-  EOT
-
-  tags = {
-    Owner       = "user"
-    Environment = "dev"
-  }
-}
-
-################################################################################
-# EC2 Module
-################################################################################
-################################################################################
-# EC2 Module
-################################################################################
-
-module "ec2_disabled" {
-  source = "../../"
-
-  create = false
-}
-
-module "ec2_complete" {
-  source = "../../"
-
-  name = local.name
-
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "c5.4xlarge"
-  availability_zone           = element(module.vpc.azs, 0)
-  subnet_id                   = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids      = [module.security_group.security_group_id]
-  placement_group             = aws_placement_group.web.id
-  associate_public_ip_address = true
-  disable_api_stop            = false
-
-  # only one of these can be enabled at a time
-  hibernation = true
-  # enclave_options_enabled = true
-
-  user_data_base64            = base64encode(local.user_data)
-  user_data_replace_on_change = true
-
-  cpu_core_count       = 2 # default 4
-  cpu_threads_per_core = 1 # default 2
-
-  enable_volume_tags = false
-  root_block_device = [
-    {
-      encrypted   = true
-      volume_type = "gp3"
-      throughput  = 200
-      volume_size = 50
-      tags = {
-        Name = "my-root-block"
-      }
-    },
-  ]
-
-  ebs_block_device = [
-    {
-      device_name = "/dev/sdf"
-      volume_type = "gp3"
-      volume_size = 5
-      throughput  = 200
-      encrypted   = true
-      kms_key_id  = aws_kms_key.this.arn
-    }
-  ]
-
-  tags = local.tags
-}
-
-module "ec2_network_interface" {
-  source = "../../"
-
-  name = "${local.name}-network-interface"
-
-  ami           = data.aws_ami.amazon_linux.id
-  instance_type = "c5.large"
-
-  network_interface = [
-    {
-      device_index          = 0
-      network_interface_id  = aws_network_interface.this.id
-      delete_on_termination = false
-    }
-  ]
-
-  tags = local.tags
-}
-
-module "ec2_metadata_options" {
-  source = "../../"
-
-  name = "${local.name}-metadata-options"
-
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "c5.4xlarge"
-  subnet_id              = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids = [module.security_group.security_group_id]
-
-  metadata_options = {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 8
-    instance_metadata_tags      = "enabled"
-  }
-
-  tags = local.tags
-}
-
-module "ec2_t2_unlimited" {
-  source = "../../"
-
-  name = "${local.name}-t2-unlimited"
-
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t2.micro"
-  cpu_credits                 = "unlimited"
-  subnet_id                   = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids      = [module.security_group.security_group_id]
-  associate_public_ip_address = true
-
-  tags = local.tags
-}
-
-module "ec2_t3_unlimited" {
-  source = "../../"
-
-  name = "${local.name}-t3-unlimited"
-
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t3.micro"
-  cpu_credits                 = "unlimited"
-  subnet_id                   = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids      = [module.security_group.security_group_id]
-  associate_public_ip_address = true
-
-  tags = local.tags
-}
-
-################################################################################
-# EC2 Module - multiple instances with `for_each`
-################################################################################
-
-locals {
-  multiple_instances = {
-    one = {
-      instance_type     = "t3.micro"
-      availability_zone = element(module.vpc.azs, 0)
-      subnet_id         = element(module.vpc.private_subnets, 0)
-      root_block_device = [
-        {
-          encrypted   = true
-          volume_type = "gp3"
-          throughput  = 200
-          volume_size = 50
-          tags = {
-            Name = "my-root-block"
-          }
-        }
-      ]
-    }
-    two = {
-      instance_type     = "t3.small"
-      availability_zone = element(module.vpc.azs, 1)
-      subnet_id         = element(module.vpc.private_subnets, 1)
-      root_block_device = [
-        {
-          encrypted   = true
-          volume_type = "gp2"
-          volume_size = 50
-        }
-      ]
-    }
-    three = {
-      instance_type     = "t3.medium"
-      availability_zone = element(module.vpc.azs, 2)
-      subnet_id         = element(module.vpc.private_subnets, 2)
-    }
-  }
-}
-
-module "ec2_multiple" {
-  source = "../../"
-
-  for_each = local.multiple_instances
-
-  name = "${local.name}-multi-${each.key}"
-
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = each.value.instance_type
-  availability_zone      = each.value.availability_zone
-  subnet_id              = each.value.subnet_id
-  vpc_security_group_ids = [module.security_group.security_group_id]
-
-  enable_volume_tags = false
-  root_block_device  = lookup(each.value, "root_block_device", [])
-
-  tags = local.tags
-}
-
-################################################################################
-# EC2 Module - spot instance request
-################################################################################
-
-module "ec2_spot_instance" {
-  source = "../../"
-
-  name                 = "${local.name}-spot-instance"
-  create_spot_instance = true
-
-  ami                         = data.aws_ami.amazon_linux.id
-  availability_zone           = element(module.vpc.azs, 0)
-  subnet_id                   = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids      = [module.security_group.security_group_id]
-  associate_public_ip_address = true
-
-  # Spot request specific attributes
-  spot_price                          = "0.1"
-  spot_wait_for_fulfillment           = true
-  spot_type                           = "persistent"
-  spot_instance_interruption_behavior = "terminate"
-  # End spot request specific attributes
-
-  user_data_base64 = base64encode(local.user_data)
-
-  cpu_core_count       = 2 # default 4
-  cpu_threads_per_core = 1 # default 2
-
-
-  enable_volume_tags = false
-  root_block_device = [
-    {
-      encrypted   = true
-      volume_type = "gp3"
-      throughput  = 200
-      volume_size = 50
-      tags = {
-        Name = "my-root-block"
-      }
-    },
-  ]
-
-  ebs_block_device = [
-    {
-      device_name = "/dev/sdf"
-      volume_type = "gp3"
-      volume_size = 5
-      throughput  = 200
-      encrypted   = true
-      # kms_key_id  = aws_kms_key.this.arn # you must grant the AWSServiceRoleForEC2Spot service-linked role access to any custom KMS keys
-    }
-  ]
-
-  tags = local.tags
-}
-
-################################################################################
-# EC2 Module - Capacity Reservation
-################################################################################
-
-module "ec2_open_capacity_reservation" {
-  source = "../../"
-
-  name = "${local.name}-open-capacity-reservation"
-
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t3.micro"
-  subnet_id                   = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids      = [module.security_group.security_group_id]
-  associate_public_ip_address = false
-
-  capacity_reservation_specification = {
-    capacity_reservation_target = {
-      capacity_reservation_id = aws_ec2_capacity_reservation.open.id
-    }
-  }
-
-  tags = local.tags
-}
-
-module "ec2_targeted_capacity_reservation" {
-  source = "../../"
-
-  name = "${local.name}-targeted-capacity-reservation"
-
-  ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t3.micro"
-  subnet_id                   = element(module.vpc.private_subnets, 0)
-  vpc_security_group_ids      = [module.security_group.security_group_id]
-  associate_public_ip_address = false
-
-  capacity_reservation_specification = {
-    capacity_reservation_target = {
-      capacity_reservation_id = aws_ec2_capacity_reservation.targeted.id
-    }
-  }
-
-  tags = local.tags
-}
-
-################################################################################
-# Supporting Resources
-################################################################################
-
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 3.0"
-
-  name = local.name
-  cidr = "10.99.0.0/18"
-
-  azs              = ["${local.region}a", "${local.region}b", "${local.region}c"]
-  public_subnets   = ["10.99.0.0/24", "10.99.1.0/24", "10.99.2.0/24"]
-  private_subnets  = ["10.99.3.0/24", "10.99.4.0/24", "10.99.5.0/24"]
-  database_subnets = ["10.99.7.0/24", "10.99.8.0/24", "10.99.9.0/24"]
-
-  tags = local.tags
-}
-
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amzn-ami-hvm-*-x86_64-gp2"]
-  }
-}
-
-module "security_group" {
-  source  = "terraform-aws-modules/security-group/aws"
-  version = "~> 4.0"
-
-  name        = local.name
-  description = "Security group for example usage with EC2 instance"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress_cidr_blocks = ["0.0.0.0/0"]
-  ingress_rules       = ["http-80-tcp", "all-icmp"]
-  egress_rules        = ["all-all"]
-
-  tags = local.tags
-}
-
-resource "aws_placement_group" "web" {
-  name     = local.name
-  strategy = "cluster"
-}
-
-resource "aws_kms_key" "this" {
-}
-
-resource "aws_network_interface" "this" {
-  subnet_id = element(module.vpc.private_subnets, 0)
-}
-
-resource "aws_ec2_capacity_reservation" "open" {
-  instance_type           = "t3.micro"
-  instance_platform       = "Linux/UNIX"
-  availability_zone       = "${local.region}a"
-  instance_count          = 1
-  instance_match_criteria = "open"
-}
-
-resource "aws_ec2_capacity_reservation" "targeted" {
-  instance_type           = "t3.micro"
-  instance_platform       = "Linux/UNIX"
-  availability_zone       = "${local.region}a"
-  instance_count          = 1
-  instance_match_criteria = "targeted"
+module "wrapper" {
+  source = "../"
+
+  for_each = var.items
+
+  create                               = try(each.value.create, var.defaults.create, true)
+  name                                 = try(each.value.name, var.defaults.name, "")
+  ami                                  = try(each.value.ami, var.defaults.ami, "")
+  associate_public_ip_address          = try(each.value.associate_public_ip_address, var.defaults.associate_public_ip_address, null)
+  availability_zone                    = try(each.value.availability_zone, var.defaults.availability_zone, null)
+  capacity_reservation_specification   = try(each.value.capacity_reservation_specification, var.defaults.capacity_reservation_specification, {})
+  cpu_credits                          = try(each.value.cpu_credits, var.defaults.cpu_credits, null)
+  disable_api_termination              = try(each.value.disable_api_termination, var.defaults.disable_api_termination, null)
+  ebs_block_device                     = try(each.value.ebs_block_device, var.defaults.ebs_block_device, [])
+  ebs_optimized                        = try(each.value.ebs_optimized, var.defaults.ebs_optimized, null)
+  enclave_options_enabled              = try(each.value.enclave_options_enabled, var.defaults.enclave_options_enabled, null)
+  ephemeral_block_device               = try(each.value.ephemeral_block_device, var.defaults.ephemeral_block_device, [])
+  get_password_data                    = try(each.value.get_password_data, var.defaults.get_password_data, null)
+  hibernation                          = try(each.value.hibernation, var.defaults.hibernation, null)
+  host_id                              = try(each.value.host_id, var.defaults.host_id, null)
+  iam_instance_profile                 = try(each.value.iam_instance_profile, var.defaults.iam_instance_profile, null)
+  instance_initiated_shutdown_behavior = try(each.value.instance_initiated_shutdown_behavior, var.defaults.instance_initiated_shutdown_behavior, null)
+  instance_type                        = try(each.value.instance_type, var.defaults.instance_type, "t3.micro")
+  ipv6_address_count                   = try(each.value.ipv6_address_count, var.defaults.ipv6_address_count, null)
+  ipv6_addresses                       = try(each.value.ipv6_addresses, var.defaults.ipv6_addresses, null)
+  key_name                             = try(each.value.key_name, var.defaults.key_name, null)
+  launch_template                      = try(each.value.launch_template, var.defaults.launch_template, null)
+  metadata_options                     = try(each.value.metadata_options, var.defaults.metadata_options, {})
+  monitoring                           = try(each.value.monitoring, var.defaults.monitoring, false)
+  network_interface                    = try(each.value.network_interface, var.defaults.network_interface, [])
+  placement_group                      = try(each.value.placement_group, var.defaults.placement_group, null)
+  private_ip                           = try(each.value.private_ip, var.defaults.private_ip, null)
+  root_block_device                    = try(each.value.root_block_device, var.defaults.root_block_device, [])
+  secondary_private_ips                = try(each.value.secondary_private_ips, var.defaults.secondary_private_ips, null)
+  source_dest_check                    = try(each.value.source_dest_check, var.defaults.source_dest_check, true)
+  subnet_id                            = try(each.value.subnet_id, var.defaults.subnet_id, null)
+  tags                                 = try(each.value.tags, var.defaults.tags, {})
+  tenancy                              = try(each.value.tenancy, var.defaults.tenancy, null)
+  user_data                            = try(each.value.user_data, var.defaults.user_data, null)
+  user_data_base64                     = try(each.value.user_data_base64, var.defaults.user_data_base64, null)
+  user_data_replace_on_change          = try(each.value.user_data_replace_on_change, var.defaults.user_data_replace_on_change, false)
+  volume_tags                          = try(each.value.volume_tags, var.defaults.volume_tags, {})
+  enable_volume_tags                   = try(each.value.enable_volume_tags, var.defaults.enable_volume_tags, true)
+  vpc_security_group_ids               = try(each.value.vpc_security_group_ids, var.defaults.vpc_security_group_ids, null)
+  timeouts                             = try(each.value.timeouts, var.defaults.timeouts, {})
+  cpu_core_count                       = try(each.value.cpu_core_count, var.defaults.cpu_core_count, null)
+  cpu_threads_per_core                 = try(each.value.cpu_threads_per_core, var.defaults.cpu_threads_per_core, null)
+  create_spot_instance                 = try(each.value.create_spot_instance, var.defaults.create_spot_instance, false)
+  spot_price                           = try(each.value.spot_price, var.defaults.spot_price, null)
+  spot_wait_for_fulfillment            = try(each.value.spot_wait_for_fulfillment, var.defaults.spot_wait_for_fulfillment, null)
+  spot_type                            = try(each.value.spot_type, var.defaults.spot_type, null)
+  spot_launch_group                    = try(each.value.spot_launch_group, var.defaults.spot_launch_group, null)
+  spot_block_duration_minutes          = try(each.value.spot_block_duration_minutes, var.defaults.spot_block_duration_minutes, null)
+  spot_instance_interruption_behavior  = try(each.value.spot_instance_interruption_behavior, var.defaults.spot_instance_interruption_behavior, null)
+  spot_valid_until                     = try(each.value.spot_valid_until, var.defaults.spot_valid_until, null)
+  spot_valid_from                      = try(each.value.spot_valid_from, var.defaults.spot_valid_from, null)
+  disable_api_stop                     = try(each.value.disable_api_stop, var.defaults.disable_api_stop, null)
+  putin_khuylo                         = try(each.value.putin_khuylo, var.defaults.putin_khuylo, true)
 }
