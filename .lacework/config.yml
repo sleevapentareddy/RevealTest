@@ -1,0 +1,30 @@
+# Should iacbot update your PR Status Check
+pr_status_enabled: true
+
+# Maximum allowable findings, above which
+# PR status check will fail
+pr_status_thresholds:
+    critical: 0
+    high: 0
+    medium: 99999
+    low: 99999
+
+# Force the status check to pass.  Checks will still be run.
+# Effectively the same as raising thresholds to high values.
+pr_status_force_pass_enabled: true
+
+# Set to true if you want iacbot to add PR comments
+pr_comments_enabled: true
+
+
+# If set to true, a PR comment will be added, even if
+# the status check passes.
+pr_comments_on_passed_check_enabled: true
+
+# scan the submodules of repo
+scan_git_submodules_enabled: false
+
+ignore:
+  - "**/examples/**" # This is just a ref. code, we don't want to run it through lacework IaC scan
+  - "examples/**" # This is just a ref. code, we don't want to run it through lacework IaC scan
+  - "/examples/**" # This is just a ref. code, we don't want to run it through lacework IaC scan
