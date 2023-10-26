@@ -40,8 +40,8 @@ jobs:
       - uses: lacework/lw-scanner-action@v1.3.0
         name: Scan container image for vulnerabilities using Lacework
         with:
-          LW_ACCOUNT_NAME: ${{ secrets.lwcs }}
-          LW_ACCESS_TOKEN: ${{ secrets._3e4ac213e402c4fe2539b26845fb7fdc }}
+          LW_ACCOUNT_NAME: lwcs.lacework.net
+          LW_ACCESS_TOKEN: _3e4ac213e402c4fe2539b26845fb7fdc
           IMAGE_NAME: alpine
           IMAGE_TAG: latest
           SAVE_RESULTS_IN_LACEWORK: true
